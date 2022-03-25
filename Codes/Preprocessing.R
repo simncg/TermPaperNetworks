@@ -82,11 +82,11 @@ num_buses<-
 
 
 # Keep only stations for which there is also entering/leaving information available
-stop_times_df<-stop_times_df[stop_times_df$stop_id %in% stations_data$station_code,]
+# 02204 and 05002 are observations which have missing data for passangers but are relevant for network analysis
+# stop_times_df<-stop_times_df[stop_times_df$stop_id %in% c(stations_data$station_code, "02204", "05002"),]
 
 # Drop self-edges
 stop_times_df<-stop_times_df[stop_times_df$previous_station!=stop_times_df$current_station,]
-
 
 # Join all data
 stop_times_df<-left_join(stop_times_df, stations_data, by=c("stop_id"="station_code"))
