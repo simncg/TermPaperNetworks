@@ -2,6 +2,8 @@ rm(list=ls())
 
 setwd("/Users/deslava/Documents/GitHub/TermPaperNetworks")
 
+setwd("~/GitHub/TermPaperNetworks")
+
 library(igraph)
 library(readxl)
 library(tidyverse)
@@ -9,6 +11,8 @@ library(ggmap)
 library(purrr)
 library(ggplot2)
 library(sp)
+library(scales)
+library(ggpubr)
 
 # Read data 
 df<-read_xlsx("Data/Data Created/Data Final Transmilenio.xlsx")
@@ -54,7 +58,10 @@ base_gg <- ggmap(bog_st) +
                    y = lat.x, yend = lat.y), 
                size=0.25, 
                alpha=0.5)+
-  theme_minimal()
+  xlab("")+
+  ylab("")+
+  theme_minimal()+
+  theme(axis.text = element_blank())
 
 base_gg
 
@@ -76,6 +83,14 @@ for(i in 1:nrow(df_network)){
   df_network$distance[i]<-manhattan_distances[x,y]
 }
 
+
+# Computing trip kilometers
+df_network$trip_km<-df_network$weight*df_network$distance
+
+# Create the network again to take into accoun the distance attribute
+network <- graph_from_data_frame(d=df_network, directed=T) 
+
+
 #--------------------------Topological Profile---------------------------------#
 # Average Degree
 degree_nodes<-degree(network, mode="all", loops = F, normalized = F)
@@ -96,24 +111,281 @@ mean(path_length)
 #--------------------------Robustness measures---------------------------------#
 # Robustness Indicator
 
-# Robustness Metric
+`%ni%` <- Negate(`%in%`)
 
-# Critical Threshold
+# Function to compute the robustness metrics
+robustness<-function(network, df_net, node_to_remove){
+  
+  tot_weight<-sum(df_net$weight)
+  tot_trip_km<-sum(df_net$trip_km)
+  tot_dist<-sum(df_net$distance)
+  
+  df_net_filt<-df_net[df_net$previous_station %ni% node_to_remove & 
+                        df_net$previous_station %ni% node_to_remove,]
+  
+  
+  weight<-sum(df_net_filt$weight)/tot_weight
+  trip_km<-sum(df_net_filt$trip_km)/tot_trip_km
+  dist<-sum(df_net_filt$distance)/tot_dist
+  
+  return(list(weight, dist, trip_km))
+}
 
-# # Now that we have the distance, let's define the network again
-# network <- graph_from_data_frame(d=df_network, directed=T) 
-# 
-# # Average Degree
-# degree_nodes<-degree(network, mode="all", loops = F, normalized = F)
-# mean(degree_nodes)
-# 
-# # Edge Betweenness
-# edge_betweenness(network, weights= E(network)$distance)
-# 
-# # Node Betweenness
-# betw<-betweenness(network, weights= E(network)$distance)
-# 
-# # Mean betweeness
-# mean(betw)
+
+# Vector with nodes to be removed iteratively (order by degree centrality)
+nodes_degree<-names(sort(degree(network, mode="all", loops = F, normalized = F), decreasing=T))
+
+# Vector with nodes to be removed iteratively (order by betweeness)
+nodes_betweness<-names(sort(betweenness(network, directed=T, weights=E(network)$distance), decreasing=T))
 
 
+# Empty dataframe to store results
+results_robustness<-as.data.frame(matrix(NA, nrow=10, ncol=7))
+colnames(results_robustness)<-c("prop_removed_nodes", "robustness_index_w_deg", 
+                                "robustness_index_d_deg", "robustness_index_t_km_deg",
+                                "robustness_index_w_bet", "robustness_index_d_bet",
+                                "robustness_index_t_km_bet")
+
+
+# Remove iteratively 10% of nodes and compute metrics
+for(i in 1:10){
+  
+  # Results degree
+  results_degree<-robustness(network, df_network, nodes_degree[1:(round(length(nodes_degree)/(10)*i))])
+  # Results betweeness
+  results_betweeness<-robustness(network, df_network, nodes_betweness[1:(round(length(nodes_betweness)/(10)*i))])
+  
+  # Filling data frame with results
+  results_robustness[i, 1]<-length(nodes_degree[1:(round(length(nodes_degree)/(10)*i))])/length(nodes_degree)
+  results_robustness[i, 2]<-results_degree[[1]]
+  results_robustness[i, 3]<-results_degree[[2]]
+  results_robustness[i, 4]<-results_degree[[3]]
+  results_robustness[i, 5]<-results_betweeness[[1]]
+  results_robustness[i, 6]<-results_betweeness[[2]]
+  results_robustness[i, 7]<-results_betweeness[[3]]
+}
+
+
+# Add Starting points
+start_points<-matrix(c(0, rep(1,6)), nrow=1, ncol=7)
+colnames(start_points)<-c("prop_removed_nodes", "robustness_index_w_deg", 
+                          "robustness_index_d_deg", "robustness_index_t_km_deg",
+                          "robustness_index_w_bet", "robustness_index_d_bet",
+                          "robustness_index_t_km_bet")
+
+results_robustness<-rbind(start_points, results_robustness)
+
+# Plot for number of routes
+p1<-ggplot(results_robustness)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_w_deg, colour="Degree"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_w_bet, colour="Betweenness"), size=1.2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_w_deg),color="coral2", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_w_bet), color="cornflowerblue", size=2)+
+  xlab("Proportion of removed nodes")+
+  ylab("Proportion of removed routes")+
+  labs(colour="")+
+  #ggtitle("Robustness indicators due to the removal of nodes",
+  #        subtitle = "Removed in order by degree and betweenness importance")+
+  theme_minimal()+
+  theme(plot.title = element_text(face="bold", hjust = 0.5),
+        plot.subtitle = element_text(face="italic", hjust = 0.5),
+        axis.text = element_text(size=7),
+        legend.position = c(0.85, 0.85))+
+  scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
+  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+
+
+# Plot for distance
+
+p2<-ggplot(results_robustness)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_d_deg, colour="Degree"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_d_bet, colour="Betweenness"), size=1.2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_d_deg),color="coral2", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_d_bet), color="cornflowerblue", size=2)+
+  xlab("Proportion of removed nodes")+
+  ylab("Proportion of removed travel distance")+
+  labs(colour="")+
+  #ggtitle("Robustness indicators due to the removal of nodes",
+  #        subtitle = "Removed in order by degree and betweenness importance")+
+  theme_minimal()+
+  theme(plot.title = element_text(face="bold", hjust = 0.5),
+        plot.subtitle = element_text(face="italic", hjust = 0.5),
+        axis.text = element_text(size=7),
+        legend.position = c(0.85, 0.85))+
+  scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
+  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+
+
+
+p3<-ggplot(results_robustness)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_t_km_deg, colour="Degree"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_t_km_bet, colour="Betweenness"), size=1.2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_t_km_deg),color="coral2", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_t_km_bet), color="cornflowerblue", size=2)+
+  xlab("Proportion of removed nodes")+
+  ylab("Proportion of removed total trip km")+
+  labs(colour="")+
+  #ggtitle("Robustness indicator due to the removal of nodes",
+  #        subtitle = "Removed in order by degree and betweenness importance")+
+  theme_minimal()+
+  theme(plot.title = element_text(face="bold", hjust = 0.5),
+        plot.subtitle = element_text(face="italic", hjust = 0.5), 
+        axis.text = element_text(size=7),
+        legend.position = c(0.85, 0.85))+
+  scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
+  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+
+
+
+all_plots<-ggarrange(p1, p2, p3, hjust = -0.5,
+          labels = c("Number of routes", "Travel Distance", "Total Trip km"),
+          ncol = 3, nrow = 1, common.legend = T, legend = "bottom", 
+          font.label = list(size = 12, face = "italic"))
+
+
+
+annotate_figure(all_plots, top = text_grob("Robustness indicators due to the removal of nodes by degree/betweeness importance", 
+                                      color = "black", face = "bold", size = 14))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# robustness<-function(network, df_net, node_to_remove){
+#   
+#   df_net_filt<-df_net[df_net$previous_station %ni% node_to_remove & 
+#                    df_net$previous_station %ni% node_to_remove,]
+#   
+#   network_filtered <- graph_from_data_frame(d=df_net_filt, directed=T) 
+#   
+#   
+#   df_net_filt$lm<-ifelse(df_net_filt$weight>1, 1, 0)
+#   Lt<-sum(table(df_net_filt$lm))
+#   Lm<-as.numeric(table(df_net_filt$lm)[2])
+#   Nt<-vcount(network_filtered)
+#   
+#   # Robustness metrics
+#   robustness_indicator<-(Lt-Nt-Lm+1)/Nt
+#   robustness_metric<-log(Lt-Nt+2)/Nt
+#   
+#   # Critical threshold
+#   avg_degree<-mean(degree(network_filtered, mode="all", loops = F, normalized = F))
+#   
+#   critical_threshold<-1-(1/((avg_degree^2/avg_degree)-1))
+#   
+#   return(list(robustness_indicator, robustness_metric, critical_threshold))
+# }
+
+
+# # Vector with nodes to be removed iteratively (order by degree centrality)
+# nodes_degree<-names(sort(degree(network, mode="all", loops = F, normalized = F), decreasing=T))
+# 
+# # Vector with nodes to be removed iteratively (order by betweeness)
+# nodes_to_removed<-names(sort(betweenness(network, directed=T, weights=E(network)$distance), decreasing=T))
+# 
+# 
+# 
+# 
+# results_robustness<-as.data.frame(matrix(NA, nrow=length(nodes_to_removed), ncol=4))
+# colnames(results_robustness)<-c("prop_removed_nodes", "robustness_indicator", "robustness_metric", "critical_threshold")
+# 
+# for(i in 1:length(nodes_to_removed)){
+#   results<-robustness(network, df_network, nodes_to_removed[1:i])
+#   results_robustness[i, 1]<-length(nodes_to_removed[1:i])/length(nodes_to_removed)
+#   results_robustness[i, 2]<-results[[1]]
+#   results_robustness[i, 3]<-results[[2]]
+#   results_robustness[i, 4]<-results[[3]]
+# }
+# 
+# 
+# results_robustness$robustness_indicator[results_robustness$robustness_indicator<0]<-0
+# results_robustness$robustness_indicator[is.na(results_robustness$robustness_indicator)]<-0
+# results_robustness$robustness_metric[is.nan(results_robustness$robustness_metric)]<-0
+# results_robustness$robustness_metric[is.infinite(results_robustness$robustness_metric)]<-0
+# 
+# results_robustness$critical_threshold[is.nan(results_robustness$critical_threshold)]<-0
+# results_robustness$critical_threshold[is.infinite(results_robustness$critical_threshold)]<-0
+# results_robustness$critical_threshold[results_robustness$critical_threshold<0]<-0
+# 
+# # Removing nodes by Betweeness ------
+# 
+# 
+# # Vector with nodes to be removed iteratively (order by betweenesss)
+# nodes_to_removed<-names(sort(betweenness(network, directed=T, weights=E(network)$distance), decreasing=T))
+# results_robustness<-as.data.frame(matrix(NA, nrow=length(nodes_to_removed), ncol=4))
+# colnames(results_robustness)<-c("prop_removed_nodes", "robustness_indicator", "robustness_metric", "critical_threshold")
+# 
+# for(i in 1:length(nodes_to_removed)){
+#   results<-robustness(network, df_network, nodes_to_removed[1:i])
+#   results_robustness[i, 1]<-length(nodes_to_removed[1:i])/length(nodes_to_removed)
+#   results_robustness[i, 2]<-results[[1]]
+#   results_robustness[i, 3]<-results[[2]]
+#   results_robustness[i, 4]<-results[[3]]
+# }
+# 
+# 
+# results_robustness$robustness_indicator[results_robustness$robustness_indicator<0]<-0
+# results_robustness$robustness_indicator[is.na(results_robustness$robustness_indicator)]<-0
+# results_robustness$robustness_metric[is.nan(results_robustness$robustness_metric)]<-0
+# results_robustness$robustness_metric[is.infinite(results_robustness$robustness_metric)]<-0
+# 
+# results_robustness$critical_threshold[is.nan(results_robustness$critical_threshold)]<-0
+# results_robustness$critical_threshold[is.infinite(results_robustness$critical_threshold)]<-0
+# results_robustness$critical_threshold[results_robustness$critical_threshold<0]<-0
+# 
+# 
+# 
+# ggplot(results_robustness)+
+#   geom_line(aes(x=prop_removed_nodes, y=robustness_indicator), color="cornflowerblue", size=1.2)+
+#   xlab("Proportion of Removed Nodes")+
+#   ylab("Robustness Indicator")+
+#   ggtitle("Robustness indicator due to the removal of nodes by betweeness order",
+#           subtitle = "Transmilenio 2022")+
+#   theme_minimal()+
+#   theme(plot.title = element_text(face="bold", hjust = 0.5),
+#         plot.subtitle = element_text(face="italic", hjust = 0.5))+
+#   scale_x_continuous(n.breaks = 10)
+# 
+# 
+# # Transform to zero when negative or not defined 
+# 
+# 
+# 
+# 
+# robustness<-function(network, df_net, node_to_remove){
+#   
+#   tot_weight<-sum(df_net$weight)
+#   tot_trip_km<-sum(df_net$trip_km)
+#   tot_dist<-sum(df_net$distance)
+#   
+#   df_net_filt<-df_net[df_net$previous_station %ni% node_to_remove & 
+#                         df_net$previous_station %ni% node_to_remove,]
+#   
+#   
+#   weight<-sum(df_net_filt$weight)/tot_weight
+#   trip_km<-sum(df_net_filt$trip_km)/tot_trip_km
+#   dist<-sum(df_net_filt$distance)/tot_dist
+#   
+#   return(list(weight, dist, trip_km))
+# }
+# 
