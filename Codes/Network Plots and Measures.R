@@ -113,25 +113,35 @@ network <- graph_from_data_frame(d=df_network, directed=T)
 
 #----------------3. Calculate topological profile measures---------------------#
 # Average Degree
-degree_nodes<-degree(network, mode="all", loops = F, normalized = F)
-sum_degree <- summary(degree_nodes)
-sd_degree <- sd(degree_nodes)
+degree_nodes <- degree(network, mode="all", loops = F, normalized = F)
+
+# Average wighted degree
+wdegree_nodes <- strength(network, mode="all", loops = F, weights=E(network)$distance)
 
 # Betweenness centrality - node
 btw <- betweenness(network, directed=T, weights=E(network)$distance)
-sum_btw <- summary(btw)
-sd_btw <- sd(btw)
 
 # Clustering
-#transitivity(network, type="local")
+cluster <- transitivity(network, type="local")
 
 # Average Path Length
 path_length <- distances(network, mode = "all", weights = E(network)$distance)
-sum_pl <- summary(path_length)
-sd_pl <- sd(path_length)
+avg_pl <- mean(path_length)
+
 
 # Latex table of topological measures results
+top_measures <- data.frame("degree" = degree_nodes, 
+                           "weighted_degree" = wdegree_nodes,
+                           "betweenness" = btw,
+                           "clustering_coeff" = cluster)
 
+colnames(top_measures)<-c("Degree", 
+                          "Weighted Degree",
+                          "Betweenness Centrality",
+                          "Clustering Coefficient")
+
+stargazer(top_measures, digits=2, nobs = F, title = "Topological measures")
+# the average path length was added manually to the final table
 
 #------------------4. Calculate robustness-static measures---------------------#
 
@@ -152,6 +162,11 @@ critical_threshold<-1-(1/((avg_degree^2/avg_degree)-1))
 list(robustness_indicator, robustness_metric, critical_threshold)
 
 # Latex table of robustness-static measures results
+static_m <- t(matrix(c(robustness_indicator, robustness_metric, critical_threshold)))
+colnames(static_m)<-c("Robustness Indicator", 
+                      "Robustness Metric",
+                      "Critical Threshold")
+stargazer(static_m, title = "Static Robustness measures")
 
 #------------------5. Calculate robustness-dynamic measures--------------------#
 # Robustness Indicator
