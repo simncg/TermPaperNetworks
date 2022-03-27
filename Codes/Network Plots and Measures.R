@@ -28,6 +28,8 @@ library(ggpubr)
 library(grid)
 library(ggsn)
 library(stargazer)
+library(DirectedClustering)
+
 
 #----------------------1. Read data and create graph---------------------------#
 # Read data 
@@ -124,6 +126,27 @@ btw <- betweenness(network, directed=T, weights=E(network)$distance)
 # Clustering
 cluster <- transitivity(network, type="local")
 
+
+# Option 1: Compute cluster coefficient for unweighted and undirected network 
+#           using the formula proposed by (Watts and Strogatz). 
+
+network_und_unw <- graph_from_data_frame(d=df_network[,c(1,2)], directed=F) 
+adj_matrix<-get.adjacency(network_und_unw,sparse=FALSE)
+cluster_coef<-ClustBCG(adj_matrix) # Obtain clusters coefficients
+cluster_coef[[1]] # cluster coefficient for each node
+cluster_coef[[2]] # global cluster coefficient
+
+
+# Option 2: Compute cluster coefficient for unweighted and undirected network  
+#           using the formula proposed by (Clemente and Grassi).
+
+adj_matrix<-get.adjacency(network, sparse=FALSE, attr="weight")
+cluster_coef<-ClustBCG(adj_matrix, "directed")
+cluster_coef[5] # Local cluster coefficients
+cluster_coef[10] # Global total cluster coefficient
+
+
+
 # Average Path Length
 path_length <- distances(network, mode = "all", weights = E(network)$distance)
 avg_pl <- mean(path_length)
@@ -198,12 +221,22 @@ nodes_betweness<-names(sort(betweenness(network, directed=T,
                                         weights=E(network)$distance), decreasing=T))
 
 
+# Vector with all nodes in the network
+nodes_network<-names(V(network))
+
+# Order nodes in a random way to compare betweeness and degree with a random removal 
+set.seed(123)
+nodes_network<-sample(nodes_network)
+
+
 # Empty dataframe to store results
-results_robustness<-as.data.frame(matrix(NA, nrow=10, ncol=7))
+results_robustness<-as.data.frame(matrix(NA, nrow=10, ncol=10))
 colnames(results_robustness)<-c("prop_removed_nodes", "robustness_index_w_deg", 
                                 "robustness_index_d_deg", "robustness_index_t_km_deg",
                                 "robustness_index_w_bet", "robustness_index_d_bet",
-                                "robustness_index_t_km_bet")
+                                "robustness_index_t_km_bet", 
+                                "robustness_index_w_ran", "robustness_index_d_ran",
+                                "robustness_index_t_km_ran" )
 
 
 # Remove iteratively 10% of nodes and compute metrics
@@ -213,6 +246,8 @@ for(i in 1:10){
   results_degree<-robustness(network, df_network, nodes_degree[1:(round(length(nodes_degree)/(10)*i))])
   # Results betweeness
   results_betweeness<-robustness(network, df_network, nodes_betweness[1:(round(length(nodes_betweness)/(10)*i))])
+  # Results random 
+  results_random<-robustness(network, df_network, nodes_network[1:(round(length(nodes_network)/(10)*i))])
   
   # Filling data frame with results
   results_robustness[i, 1]<-length(nodes_degree[1:(round(length(nodes_degree)/(10)*i))])/length(nodes_degree)
@@ -222,15 +257,19 @@ for(i in 1:10){
   results_robustness[i, 5]<-results_betweeness[[1]]
   results_robustness[i, 6]<-results_betweeness[[2]]
   results_robustness[i, 7]<-results_betweeness[[3]]
+  results_robustness[i, 8]<-results_random[[1]]
+  results_robustness[i, 9]<-results_random[[2]]
+  results_robustness[i, 10]<-results_random[[3]]
 }
 
 
 # Add Starting points
-start_points<-matrix(c(0, rep(1,6)), nrow=1, ncol=7)
+start_points<-matrix(c(0, rep(1,9)), nrow=1, ncol=10)
 colnames(start_points)<-c("prop_removed_nodes", "robustness_index_w_deg", 
                           "robustness_index_d_deg", "robustness_index_t_km_deg",
                           "robustness_index_w_bet", "robustness_index_d_bet",
-                          "robustness_index_t_km_bet")
+                          "robustness_index_t_km_bet", "robustness_index_w_ran", "robustness_index_d_ran",
+                          "robustness_index_t_km_ran")
 
 results_robustness<-rbind(start_points, results_robustness)
 
@@ -238,8 +277,10 @@ results_robustness<-rbind(start_points, results_robustness)
 p1<-ggplot(results_robustness)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_w_deg, colour="Degree"), size=1.2)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_w_bet, colour="Betweenness"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_w_ran, colour="Random"), size=1.2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_w_deg),color="coral2", size=2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_w_bet), color="cornflowerblue", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_w_ran), color="gray60", size=2)+
   xlab("Proportion of removed nodes")+
   ylab("Proportion of removed routes")+
   labs(colour="")+
@@ -252,15 +293,19 @@ p1<-ggplot(results_robustness)+
         legend.position = c(0.85, 0.85))+
   scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
   scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
-  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+  scale_colour_manual(values=c("cornflowerblue", "coral2","gray60"))
+
+p1
 
 
 # Plot for distance
 p2<-ggplot(results_robustness)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_d_deg, colour="Degree"), size=1.2)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_d_bet, colour="Betweenness"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_d_ran, colour="Random"), size=1.2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_d_deg),color="coral2", size=2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_d_bet), color="cornflowerblue", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_d_ran), color="gray60", size=2)+
   xlab("Proportion of removed nodes")+
   ylab("Proportion of removed travel distance")+
   labs(colour="")+
@@ -273,14 +318,18 @@ p2<-ggplot(results_robustness)+
         legend.position = c(0.85, 0.85))+
   scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
   scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
-  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+  scale_colour_manual(values=c("cornflowerblue", "coral2", "gray60"))
 
+
+p2
 
 p3<-ggplot(results_robustness)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_t_km_deg, colour="Degree"), size=1.2)+
   geom_line(aes(x=prop_removed_nodes, y=robustness_index_t_km_bet, colour="Betweenness"), size=1.2)+
+  geom_line(aes(x=prop_removed_nodes, y=robustness_index_t_km_ran, colour="Random"), size=1.2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_t_km_deg),color="coral2", size=2)+
   geom_point(aes(x=prop_removed_nodes, y=robustness_index_t_km_bet), color="cornflowerblue", size=2)+
+  geom_point(aes(x=prop_removed_nodes, y=robustness_index_t_km_ran), color="gray60", size=2)+
   xlab("Proportion of removed nodes")+
   ylab("Proportion of removed total trip km")+
   labs(colour="")+
@@ -293,7 +342,9 @@ p3<-ggplot(results_robustness)+
         legend.position = c(0.85, 0.85))+
   scale_x_continuous(limits=c(0,1), n.breaks = 10, labels =  scales::percent_format(accuracy = 1))+
   scale_y_continuous(limits=c(0,1), n.breaks = 10, labels = scales::percent_format(accuracy = 1))+
-  scale_colour_manual(values=c("cornflowerblue", "coral2"))
+  scale_colour_manual(values=c("cornflowerblue", "coral2", "gray60"))
+
+p3
 
 all_plots<-ggarrange(p1, p2, p3, hjust = -0.5,
           labels = c("Number of trips", "Travel Distance (km)", "Total Trip Distance"),
@@ -303,10 +354,63 @@ all_plots<-ggarrange(p1, p2, p3, hjust = -0.5,
 all_plots
 
 
+ggsave("Dynamic measures.png") 
 
-# annotate_figure(all_plots, 
-#                 top = text_grob("Robustness after removal of nodes by degree/betweeness importance", 
-#                                       color = "black", face = "bold", size = 14))
+# --------------------- Random removal of nodes -------------------------
+
+
+
+
+
+
+
+
+
+
+#----------------------- 6. Cluster Analysis ---------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
