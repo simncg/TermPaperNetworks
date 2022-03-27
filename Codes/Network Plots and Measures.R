@@ -124,26 +124,14 @@ wdegree_nodes <- strength(network, mode="all", loops = F, weights=E(network)$dis
 btw <- betweenness(network, directed=T, weights=E(network)$distance)
 
 # Clustering
-cluster <- transitivity(network, type="local")
 
-
-# Option 1: Compute cluster coefficient for unweighted and undirected network 
-#           using the formula proposed by (Watts and Strogatz). 
-
-network_und_unw <- graph_from_data_frame(d=df_network[,c(1,2)], directed=F) 
-adj_matrix<-get.adjacency(network_und_unw,sparse=FALSE)
-cluster_coef<-ClustBCG(adj_matrix) # Obtain clusters coefficients
-cluster_coef[[1]] # cluster coefficient for each node
-cluster_coef[[2]] # global cluster coefficient
-
-
-# Option 2: Compute cluster coefficient for unweighted and undirected network  
-#           using the formula proposed by (Clemente and Grassi).
+# Compute cluster coefficient for unweighted and undirected network  
+# using the formula proposed by (Clemente and Grassi).
 
 adj_matrix<-get.adjacency(network, sparse=FALSE, attr="weight")
 cluster_coef<-ClustBCG(adj_matrix, "directed")
-cluster_coef[5] # Local cluster coefficients
-cluster_coef[10] # Global total cluster coefficient
+cluster<-cluster_coef[5] # Local cluster coefficients
+global_cluster<-cluster_coef[10] # Global total cluster coefficient
 
 
 
